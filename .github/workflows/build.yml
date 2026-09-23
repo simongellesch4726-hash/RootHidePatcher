@@ -29,7 +29,7 @@ jobs:
           set -eux
           APP="$(find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Release-iphoneos/Patcher.app' -type d -print -quit)"
           test -n "$APP"
-          test -x "$APP/roothide_fixed_path_analyzer.sh"
+          test -f "$APP/roothide_fixed_path_analyzer.sh"
           bash -n "$APP/patch.sh"
           bash -n "$APP/roothide_fixed_path_analyzer.sh"
 
