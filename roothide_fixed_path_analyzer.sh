@@ -101,7 +101,7 @@ DISASM="$TMP/disasm"
 otool $OTOOL_ARCH -t -v -V "$ANALYZE_BIN" > "$DISASM" 2>/dev/null || true
 
 while IFS= read -r line; do
-    line="${line#"\${line%%[![:space:]]*}"}"
+    line="$(printf "%s\n" "$line" | sed -E "s/^[[:space:]]*//")"
     [ -z "$line" ] && continue
 
     fileoff_hex="${line%%[[:space:]]*}"
