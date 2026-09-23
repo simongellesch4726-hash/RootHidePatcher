@@ -371,6 +371,7 @@ done
     
 if [ ! -z "$3" ]; then
     cp "$TEMPDIR_NEW"/DEBIAN/*.roothidepatch "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/DEBIAN.$DEB_PACKAGE/ >/dev/null 2>&1 || true
+    cp "$TEMPDIR_NEW"/DEBIAN/*.roothidepaths "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/DEBIAN.$DEB_PACKAGE/ >/dev/null 2>&1 || true
     chown -R 501:501 "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/
     chmod -R 0755 "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/
 fi
