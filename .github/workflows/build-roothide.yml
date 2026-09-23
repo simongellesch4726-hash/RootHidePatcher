@@ -1,0 +1,37 @@
+name: Build RootHidePatcher
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - auto-fixed-paths-clean
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/roothide/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install dpkg ldid
+
+      - name: Build
+        run: |
+          export THEOS="$HOME/theos"
+          export PATH="$THEOS/bin:$PATH"
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootHidePatcher-roothide
+          path: packages/*.deb
+          if-no-files-found: error

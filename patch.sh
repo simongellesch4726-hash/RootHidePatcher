@@ -287,6 +287,23 @@ done
     fixedpaths=$(strings - "$file" | grep /var/jb || true)
     if [ "$3" == "AutoPatches" ]; then
         ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file".roothidepatch
+
+        # Record only conservative jailbreak-owned fixed /var paths for the
+        # manifest-driven AutoPatches compatibility layer. RootFS/user-data
+        # paths such as /var/mobile, /var/containers and /var/run are excluded.
+        manifest="$file.roothidepaths"
+        : > "$manifest"
+        strings - "$file" | grep '^/var/' | while IFS= read -r path; do
+            case "$path" in
+                /var/tmp|/var/tmp/*|/var/log|/var/log/*|/var/cache|/var/cache/*|/var/lib|/var/lib/*|/var/root/.ssh|/var/root/.ssh/*|/var/root/Library|/var/root/Library/*)
+                    echo "$path" >> "$manifest"
+                    ;;
+            esac
+        done
+        sort -u "$manifest" -o "$manifest"
+        if [ ! -s "$manifest" ]; then
+            rm -f "$manifest"
+        fi
     fi
   elif ! [[ {png,strings} =~ "${fname##*.}" ]]; then
     if [[ {preinst,prerm,postinst,postrm,extrainst_} =~ "$fname" ]]; then
