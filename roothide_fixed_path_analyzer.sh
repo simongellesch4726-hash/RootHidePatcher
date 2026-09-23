@@ -28,9 +28,9 @@ classify() {
     case "$p" in
         /var/jb|/var/jb/*|/private/var/jb|/private/var/jb/*)
             echo jbroot ;;
-        /var/tmp|/var/tmp/*|/private/var/tmp|/private/var/tmp/*|        /var/log|/var/log/*|/private/var/log|/private/var/log/*|        /var/cache|/var/cache/*|/private/var/cache|/private/var/cache/*|        /var/lib|/var/lib/*|/private/var/lib|/private/var/lib/*|        /var/empty|/var/empty/*|/private/var/empty|/private/var/empty/*|        /var/config|/var/config/*|/private/var/config|/private/var/config/*)
+        /var/tmp|/var/tmp/*|/private/var/tmp|/private/var/tmp/*|/var/log|/var/log/*|/private/var/log|/private/var/log/*|/var/cache|/var/cache/*|/private/var/cache|/private/var/cache/*|/var/lib|/var/lib/*|/private/var/lib|/private/var/lib/*|/var/empty|/var/empty/*|/private/var/empty|/private/var/empty/*|/var/config|/var/config/*|/private/var/config|/private/var/config/*)
             echo jbroot ;;
-        /var/mobile|/var/mobile/*|/private/var/mobile|/private/var/mobile/*|        /var/db|/var/db/*|/private/var/db|/private/var/db/*|        /var/run|/var/run/*|/private/var/run|/private/var/run/*|        /var/folders|/var/folders/*|/private/var/folders|/private/var/folders/*|        /var/containers|/var/containers/*|/private/var/containers|/private/var/containers/*)
+        /var/mobile|/var/mobile/*|/private/var/mobile|/private/var/mobile/*|/var/db|/var/db/*|/private/var/db|/private/var/db/*|/var/run|/var/run/*|/private/var/run|/private/var/run/*|/var/folders|/var/folders/*|/private/var/folders|/private/var/folders/*|/var/containers|/var/containers/*|/private/var/containers|/private/var/containers/*)
             echo rootfs ;;
         *) echo unknown ;;
     esac
