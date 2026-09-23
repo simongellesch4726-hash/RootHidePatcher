@@ -39,6 +39,7 @@ jobs:
         run: |
           set -eux
           APP="$GITHUB_WORKSPACE/build/Build/Products/Release-iphoneos/Patcher.app"
+          mkdir -p diagnostics
           cat > fixture.c <<'EOF'
           extern void consume(const char *);
           __attribute__((visibility("default"))) void fixture(void) {
@@ -47,28 +48,24 @@ jobs:
           }
           EOF
           clang -target arm64-apple-macos11 -dynamiclib fixture.c -o fixture.dylib
-          set -o pipefail
-          {
-            echo "=== CSTRING ==="
-            otool -v -s __TEXT __cstring fixture.dylib || true
-            echo "=== DISASM ==="
-            otool -t -v -V fixture.dylib || true
-            echo "=== ANALYZER ==="
-            bash "$APP/roothide_fixed_path_analyzer.sh" fixture.dylib fixture.plist
-          } 2>&1 | tee analyzer.log
-          plutil -convert xml1 -o - fixture.plist | tee fixture.xml
-          grep -q '<string>jbroot</string>' fixture.xml
-          if grep -q 'keep-rootfs.plist' fixture.xml; then exit 1; fi
-          grep -q '<string>cstring</string>' fixture.xml
+          otool -v -s __TEXT __cstring fixture.dylib > diagnostics/cstring.txt 2>&1 || true
+          otool -t -v -V fixture.dylib > diagnostics/disasm.txt 2>&1 || true
+          bash "$APP/roothide_fixed_path_analyzer.sh" fixture.dylib fixture.plist > diagnostics/analyzer.log 2>&1 || true
+          plutil -convert xml1 -o - fixture.plist > diagnostics/fixture.xml 2>&1 || true
+          cat diagnostics/cstring.txt
+          cat diagnostics/disasm.txt
+          cat diagnostics/analyzer.log
+          cat diagnostics/fixture.xml
+          grep -q '<string>jbroot</string>' diagnostics/fixture.xml
+          if grep -q 'keep-rootfs.plist' diagnostics/fixture.xml; then exit 1; fi
+          grep -q '<string>cstring</string>' diagnostics/fixture.xml
 
       - name: Upload analyzer diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: RootHidePatcher-analyzer-log-${{ github.sha }}
-          path: |
-            analyzer.log
-            fixture.xml
+          path: diagnostics
           if-no-files-found: warn
 
       - name: Upload app
