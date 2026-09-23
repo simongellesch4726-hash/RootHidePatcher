@@ -258,6 +258,7 @@
 				8450CC402D06B4D200BFCA94 /* cctools in Resources */,
 				842F70782ACE4385002E5574 /* roothide.entitlements in Resources */,
 				842F706B2ACC3847002E5574 /* patch.sh in Resources */,
+				9A0000010000000000000001 /* roothide_fixed_path_analyzer.sh in Resources */,
 				6DCF8E3B29EA9E7100D55A37 /* Preview Assets.xcassets in Resources */,
 				6DCF8E3829EA9E7100D55A37 /* Assets.xcassets in Resources */,
 			);
