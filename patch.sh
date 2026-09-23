@@ -377,7 +377,7 @@ $SED -i 's|iphoneos-arm64|iphoneos-arm64e|g' "$TEMPDIR_NEW"/DEBIAN/control
 $SED -i '/^Conflicts: /s/roothide/r-o-o-t-l-e-s-s-/g' "$TEMPDIR_NEW"/DEBIAN/control
 
 if [ "$3" == "AutoPatches" ]; then
-    PreDepends="rootless-compat(>= 0.9)"
+    PreDepends="rootless-compat(>= 0.9), com.roothide.autopatches"
 elif [ "$3" == "DynamicPatches" ]; then
     $SED -i "/^Version\:/d" "$TEMPDIR_NEW"/DEBIAN/control
     echo "Version: $DEB_VERSION~roothide" >> "$TEMPDIR_NEW"/DEBIAN/control
