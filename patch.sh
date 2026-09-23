@@ -287,6 +287,22 @@ done
     fixedpaths=$(strings - "$file" | grep /var/jb || true)
     if [ "$3" == "AutoPatches" ]; then
         ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file".roothidepatch
+
+        # AutoPatches can safely redirect only paths that are unambiguously
+        # jailbreak-owned. Rootfs/user-data paths such as /var/mobile,
+        # /var/containers and /var/run are deliberately excluded.
+        fixedpath_manifest="$file.roothidepaths"
+        : > "$fixedpath_manifest"
+        strings - "$file" | awk '
+            /^\/var\/tmp(\/|$)/ ||
+            /^\/var\/(log|cache|lib)(\/|$)/ ||
+            /^\/var\/root\/(\.ssh|Library)(\/|$)/ {
+                print
+            }
+        ' | sort -u > "$fixedpath_manifest"
+        if [ ! -s "$fixedpath_manifest" ]; then
+            rm -f "$fixedpath_manifest"
+        fi
     fi
   elif ! [[ {png,strings} =~ "${fname##*.}" ]]; then
     if [[ {preinst,prerm,postinst,postrm,extrainst_} =~ "$fname" ]]; then
@@ -344,6 +360,11 @@ done
   fi
   if [ ! -z "$fixedpaths" ]; then
     $ECHO "*****fixed-paths-warnning*****\n$fixedpaths\n*******************************\n"
+  fi
+  if [ "$3" == "AutoPatches" ] && [ -f "$file.roothidepaths" ]; then
+    $ECHO "*****auto-fixed-paths*****"
+    cat "$file.roothidepaths"
+    $ECHO "***************************"
   fi
 done
 
