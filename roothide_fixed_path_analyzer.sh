@@ -99,9 +99,15 @@ while IFS= read -r line; do
         ins_addr="${ins%%[[:space:]]*}"
         ins_addr_dec=$((16#$ins_addr))
         rest="${ins#*[[:space:]]}"
-        if printf '%s\n' "$rest" | grep -Eq "^[[:space:]]*adrp[[:space:]]+x([0-9]+),.*;[[:space:]]*$page_hex$"; then
-            prev_reg="$(printf '%s\n' "$rest" | sed -nE 's/^[[:space:]]*adrp[[:space:]]+x([0-9]+),.*;[[:space:]]*0x[0-9a-fA-F]+$/\1/p')"
-            continue
+        if printf '%s\n' "$rest" | grep -Eq "^[[:space:]]*adrp[[:space:]]+x[0-9]+,"; then
+            adrp_target="$(printf '%s\n' "$rest" | sed -nE 's/.*(0x[0-9a-fA-F]+)[[:space:]]*$/\1/p')"
+            if [ -n "$adrp_target" ]; then
+                adrp_target_hex="${adrp_target#0x}"
+                if [ $((16#$adrp_target_hex)) -eq "$page" ]; then
+                    prev_reg="$(printf '%s\n' "$rest" | sed -nE 's/^[[:space:]]*adrp[[:space:]]+x([0-9]+),.*/\1/p')"
+                    continue
+                fi
+            fi
         fi
         if [ -n "$prev_reg" ]; then
             add_reg="$(printf '%s\n' "$rest" | sed -nE 's/^[[:space:]]*add[[:space:]]+x([0-9]+),[[:space:]]*x([0-9]+),[[:space:]]*#?0x?([0-9a-fA-F]+).*$/\1 \2 \3/p')"
