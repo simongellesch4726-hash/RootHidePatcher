@@ -287,8 +287,8 @@ done
     if [ "$3" == "AutoPatches" ]; then
         ANALYZER="$(dirname "$(realpath "$0")")/roothide_fixed_path_analyzer.sh"
         PATCH_CONFIG="$file.roothidepatch.plist"
-        if [ -x "$ANALYZER" ]; then
-            if "$ANALYZER" "$file" "$PATCH_CONFIG"; then
+        if [ -f "$ANALYZER" ]; then
+            if bash "$ANALYZER" "$file" "$PATCH_CONFIG"; then
                 if plutil -convert xml1 -o - "$PATCH_CONFIG" 2>/dev/null | grep -q "<dict>"; then
                     rm -f "$file.roothidepatch"
                     ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file.roothidepatch"
