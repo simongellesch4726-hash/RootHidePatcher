@@ -128,6 +128,331 @@ exclude_files=(
     \( \! -path "*.lua" -o -name "EQE.lua" \)
 )
 
+### Automatic RootHide path analysis #############################
+#
+# A literal /var path is not enough to safely rewrite a Mach-O: /var/mobile,
+# /var/db, etc. are rootfs paths while /var/tmp, /var/log, /var/lib, etc. are
+# commonly used by jailbreak/bootstrap software. We therefore classify paths
+# conservatively and never mutate Mach-O string data here.
+#
+# The actual runtime conversion is performed by the RootHide compatibility /
+# DynamicPatches layer. This audit makes the converter aware of binary paths
+# that need runtime handling and prevents the old /var/jb-only warning from
+# silently missing ordinary /var paths.
+
+audit_macho_paths() {
+    local target="$1"
+    local result=""
+    [ -f "$target" ] || return 0
+
+    result=$(strings -a "$target" 2>/dev/null | awk '
+    function emit(kind, path) {
+        if (!(kind SUBSEP path in seen)) {
+            print kind "\t" path
+            seen[kind SUBSEP path] = 1
+            found = 1
+        }
+    }
+    {
+        s=$0
+
+        if (s ~ /^\/var\/jb(\/|$)/)
+            emit("jbroot", s)
+
+        if (s ~ /^\/var\/(tmp|log|cache|lib|empty|config)(\/|$)/)
+            emit("jbroot", s)
+
+        if (s ~ /^\/var\/(mobile|db|run|folders|containers)(\/|$)/)
+            emit("rootfs", s)
+
+        if (s ~ /^\/private\/var\/mobile(\/|$)/)
+            emit("rootfs", s)
+    }
+    END {
+        exit(found ? 1 : 0)
+    }' || true)
+
+    if [ -n "$result" ]; then
+        $ECHO "***** RootHide path analysis *****"
+        while IFS=
+Derootifier() {
+
+    mv -f "$TEMPDIR_OLD"/* "$TEMPDIR_NEW"/
+    
+    findcmd=(find "$TEMPDIR_NEW" -type f -size +0c)
+    for item in "${exclude_files[@]}"; do
+        findcmd+=( $item )
+    done
+
+    "${findcmd[@]}" | while read -r file; do
+      fname=$(basename "$file")
+      fpath=/$(realpath --relative-base="$TEMPDIR_NEW" "$file")
+      ftype=$(file -b "$file")
+      if echo $ftype | grep -q "Mach-O"; then
+        $ECHO "=> $fpath"
+        $ECHO -n "patch..."
+        otool -L "$file" | tail -n +2 | cut -d' ' -f1 | tr -d "[:blank:]" > "$TEMPDIR_OLD"/._lib_cache
+        if [ -f "$TEMPDIR_OLD"/._lib_cache ]; then
+            cat "$TEMPDIR_OLD"/._lib_cache | while read line; do
+                if echo "$line" | grep -q ^/usr/lib/ ; then
+                    I_N_T -change "$line" @rpath/"${line#/usr/lib/}" "$file"
+                elif echo "$line" | grep -q ^/Library/Frameworks/ ; then
+                    I_N_T -change "$line" @rpath/"${line#/Library/Frameworks/}" "$file"
+                fi
+            done
+        fi
+        I_N_T -add_rpath "/usr/lib" "$file"
+        I_N_T -add_rpath "@loader_path/.jbroot/usr/lib" "$file"
+        I_N_T -add_rpath "/Library/Frameworks" "$file" >/dev/null
+        I_N_T -add_rpath "@loader_path/.jbroot/Library/Frameworks" "$file"
+
+        $ECHO -n "resign..."
+        if echo $ftype | grep -q "executable"; then
+            $LDID -M "-S$(dirname $(realpath $0))/roothide.entitlements" "$file"
+        else
+            $LDID -S "$file"
+        fi
+        $ECHO "~ok."
+      fi
+    done
+    
+    
+    $SED -i '/^$/d' "$TEMPDIR_NEW"/DEBIAN/control
+    $SED -i 's|iphoneos-arm|iphoneos-arm64e|g' "$TEMPDIR_NEW"/DEBIAN/control
+
+
+    find "$TEMPDIR_NEW" -name ".DS_Store" -delete
+    dpkg-deb -Zzstd -b "$TEMPDIR_NEW" "$OUTPUT_PATH"
+    chown 501:501 "$OUTPUT_PATH"
+
+    ### Real script end
+
+    $ECHO "\nfinished. cleaning up..."
+
+    if [ "$(sw_vers -productName)" != "macOS" ]; then
+        rm -rf "$TEMPDIR_OLD" "$TEMPDIR_NEW"
+        rm -f $1
+    fi
+
+}
+####################################################################
+
+if [ $DEB_ARCH == "iphoneos-arm" ] && [ -z "$3" ]; then
+    Derootifier $@
+    exit 0
+elif [ $DEB_ARCH == "iphoneos-arm" ]; then
+    $ECHO "$DEB_ARCH\n*** It's a rootful package, you can try the first option [Directly Convert Simple Tweaks]\n\nskipping and exiting cleanly."
+    rm -rf "$TEMPDIR_OLD" "$TEMPDIR_NEW"
+    exit 1;
+elif [ $DEB_ARCH != "iphoneos-arm64" ]; then
+    $ECHO "$DEB_ARCH\n*** Not a rootless package!\n\nskipping and exiting cleanly."
+    rm -rf "$TEMPDIR_OLD" "$TEMPDIR_NEW"
+    exit 1;
+fi
+
+mv -f "$TEMPDIR_OLD"/DEBIAN "$TEMPDIR_NEW"/
+
+#dpkg-deb -c "$1" > "$TEMPDIR_NEW"/DEBIAN/list
+#$SED -i -E 's|^\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+||g' "$TEMPDIR_NEW"/DEBIAN/list
+#$SED -i -E 's|^(\.\/)?|/|g' "$TEMPDIR_NEW"/DEBIAN/list
+#$SED -i -E '1s|^\/$|/.|'  "$TEMPDIR_NEW"/DEBIAN/list
+#
+#if [ ! -e "$TEMPDIR_NEW"/DEBIAN/md5sums ]; then
+#    cd "$TEMPDIR_OLD"
+#    eval md5sum $($FIND "$TEMPDIR_OLD" -type f -printf "\"%P\"\n") > "$TEMPDIR_NEW"/DEBIAN/md5sums  #E2BIG on ios
+#    cd -
+#fi
+
+if [ -d "$TEMPDIR_OLD/var/jb" ]; then
+    subitemcount=$(ls -A "$TEMPDIR_OLD/var/jb")
+    if [ -n "$subitemcount" ]; then mv -f "$TEMPDIR_OLD"/var/jb/* "$TEMPDIR_NEW"/ ; fi
+    rmdir "$TEMPDIR_OLD"/var/jb
+fi
+rmdir "$TEMPDIR_OLD"/var >/dev/null 2>&1 || true
+rootfsfiles=$(ls "$TEMPDIR_OLD")
+if [ ! -z "$rootfsfiles" ]; then
+    mkdir "$TEMPDIR_NEW"/rootfs
+    mv -f "$TEMPDIR_OLD"/* "$TEMPDIR_NEW"/rootfs/
+fi
+# some packages have both /var/jb/var/xxx and /var/xxx, same file same name
+if [ ! -z "$3" ]; then
+    mkdir -p "$TEMPDIR_OLD"/pkgmirror
+    cp -a "$TEMPDIR_NEW"/. "$TEMPDIR_OLD"/pkgmirror/
+    mv "$TEMPDIR_OLD"/pkgmirror/DEBIAN "$TEMPDIR_OLD"/pkgmirror/DEBIAN.$DEB_PACKAGE
+    mkdir -p "$TEMPDIR_NEW"/var/mobile/Library
+    mv "$TEMPDIR_OLD"/pkgmirror "$TEMPDIR_NEW"/var/mobile/Library/
+# append after "Package" : "Status: install ok installed" > "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/DEBIAN.$DEB_PACKAGE/control
+fi
+
+#rm -f "$TEMPDIR_NEW"/DEBIAN/list "$TEMPDIR_NEW"/DEBIAN/md5sums
+
+lsrpath() {
+    otool -l "$@" |
+    awk '
+        /^[^ ]/ {f = 0}
+        $2 == "LC_RPATH" && $1 == "cmd" {f = 1}
+        f && gsub(/^ *path | \(offset [0-9]+\)$/, "") == 2
+    ' | sort | uniq
+}
+
+findcmd=(find "$TEMPDIR_NEW" -type f -size +0c \! -path "*/var/mobile/Library/pkgmirror/*")
+for item in "${exclude_files[@]}"; do
+    findcmd+=( $item )
+done
+
+"${findcmd[@]}" | while read -r file; do
+  LOG "$file"
+  fixedpaths=""
+  fname=$(basename "$file")
+  fpath=/$(realpath --relative-base="$TEMPDIR_NEW" "$file")
+  ftype=$(file -b "$file")
+  if echo $ftype | grep -q "Mach-O"; then
+    $ECHO "=> $fpath"
+    $ECHO -n "patch..."
+    lsrpath "$file" | while read line; do
+        if [[ $line == /var/jb/* ]]; then
+            newpath=${line/\/var\/jb\//@loader_path\/.jbroot\/}
+            LOG "change rpath" "$line" "$newpath"
+            I_N_T -rpath "$line" "$newpath" "$file"
+        fi
+    done
+    otool -L "$file" | tail -n +2 | cut -d' ' -f1 | tr -d "[:blank:]" | while read line; do
+        if [[ $line == /var/jb/* ]]; then
+            newlib=${line/\/var\/jb\//@loader_path\/.jbroot\/}
+            LOG "change library" "$line" "$newlib"
+            I_N_T -change "$line" "$newlib" "$file"
+        fi
+    done
+    $ECHO -n "resign..."
+    if echo $ftype | grep -q "executable"; then
+        $LDID -M "-S$(dirname $(realpath $0))/roothide.entitlements" "$file"
+    else
+        $LDID -S "$file"
+    fi
+    $ECHO "~ok."
+    # Analyze all relevant /var paths, not just legacy /var/jb strings.
+    # Do this after Mach-O conversion/resigning so the audit sees the final
+    # binary that will be installed.
+    audit_macho_paths "$file"
+
+    fixedpaths=$(strings -a "$file" | grep -E '^/(private/)?var/(jb|tmp|log|cache|lib|empty|config)(/|$)' || true)
+    if [ "$3" == "AutoPatches" ]; then
+        ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file".roothidepatch
+    fi
+  elif ! [[ {png,strings} =~ "${fname##*.}" ]]; then
+    if [[ {preinst,prerm,postinst,postrm,extrainst_} =~ "$fname" ]]; then
+        $SED -i 's|iphoneos-arm64|iphoneos-arm64e|g' "$file"
+                        
+        $SED -i 's|/var/jb/|/-var/jb/-|g' "$file"
+        $SED -i 's|/var/jb|/-var/jb-|g' "$file"
+        
+        $SED -i 's| /Applications/| /rootfs/Applications/|g' "$file"
+        $SED -i 's| /Library/| /rootfs/Library/|g' "$file"
+        $SED -i 's| /private/| /rootfs/private/|g' "$file"
+        $SED -i 's| /System/| /rootfs/System/|g' "$file"
+        $SED -i 's| /sbin/| /rootfs/sbin/|g' "$file"
+        $SED -i 's| /bin/| /rootfs/bin/|g' "$file"
+        $SED -i 's| /etc/| /rootfs/etc/|g' "$file"
+        $SED -i 's| /lib/| /rootfs/lib/|g' "$file"
+        $SED -i 's| /usr/| /rootfs/usr/|g' "$file"
+        $SED -i 's| /var/| /rootfs/var/|g' "$file"
+                
+        $SED -i 's|DIR="/Library/|DIR="/rootfs/Library/|g' "$file"
+        
+        $SED -i '1s|^#!\s*\/rootfs\/|#! \/|' "$file"  #revert shebang
+                                                
+        $SED -i 's|/-var/jb/-|/|g' "$file"
+        $SED -i 's|/-var/jb-|/var/jb|g' "$file"
+    fi
+    if [ "${fname##*.}" == "plist" ]; then
+        plutil -convert xml1 "$file" >/dev/null
+        if [[ {/Library/LaunchDaemons} =~ $(dirname "$fpath") ]]; then
+            $SED -i 's|/var/jb/|/|g' "$file"
+        elif [[ {/Library/libSandy} =~ $(dirname "$fpath") ]]; then
+            $SED -i 's|/var/jb/|/-var/jb/-|g' "$file"
+            $SED -i 's|/var/jb|/-var/jb-|g' "$file"
+                    
+            $SED -i 's|>/<|>/rootfs/<|g' "$file"
+            $SED -i 's|>/Applications/|>/rootfs/Applications/|g' "$file"
+            $SED -i 's|>/Library/|>/rootfs/Library/|g' "$file"
+            $SED -i 's|>/private/|>/rootfs/private/|g' "$file"
+            $SED -i 's|>/System/|>/rootfs/System/|g' "$file"
+            $SED -i 's|>/sbin/|>/rootfs/sbin/|g' "$file"
+            $SED -i 's|>/bin/|>/rootfs/bin/|g' "$file"
+            $SED -i 's|>/etc/|>/rootfs/etc/|g' "$file"
+            $SED -i 's|>/lib/|>/rootfs/lib/|g' "$file"
+            $SED -i 's|>/usr/|>/rootfs/usr/|g' "$file"
+            $SED -i 's|>/var/|>/rootfs/var/|g' "$file"
+            
+            $SED -i 's|/-var/jb/-|/|g' "$file"
+            $SED -i 's|/-var/jb-|/var/jb|g' "$file"
+        fi
+    fi
+    fixedpaths=$(strings - "$file" | grep /var/jb || true)
+    if [ ! -z "$fixedpaths" ]; then
+        $ECHO "=> $fpath"
+    fi
+  fi
+  if [ ! -z "$fixedpaths" ]; then
+    $ECHO "*****fixed-paths-warnning*****\n$fixedpaths\n*******************************\n"
+  fi
+done
+
+    
+if [ ! -z "$3" ]; then
+    cp "$TEMPDIR_NEW"/DEBIAN/*.roothidepatch "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/DEBIAN.$DEB_PACKAGE/ >/dev/null 2>&1 || true
+    chown -R 501:501 "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/
+    chmod -R 0755 "$TEMPDIR_NEW"/var/mobile/Library/pkgmirror/
+fi
+
+$SED -i '/^$/d' "$TEMPDIR_NEW"/DEBIAN/control
+$SED -i 's|iphoneos-arm64|iphoneos-arm64e|g' "$TEMPDIR_NEW"/DEBIAN/control
+$SED -i '/^Conflicts: /s/roothide/r-o-o-t-l-e-s-s-/g' "$TEMPDIR_NEW"/DEBIAN/control
+
+if [ "$3" == "AutoPatches" ]; then
+    PreDepends="rootless-compat(>= 0.9)"
+elif [ "$3" == "DynamicPatches" ]; then
+    $SED -i "/^Version\:/d" "$TEMPDIR_NEW"/DEBIAN/control
+    echo "Version: $DEB_VERSION~roothide" >> "$TEMPDIR_NEW"/DEBIAN/control
+    PreDepends="patches-$DEB_PACKAGE(= $DEB_VERSION~roothide)"
+fi
+
+if [ "$PreDepends" != "" ]; then
+    if grep -q '^Pre-Depends:' "$TEMPDIR_NEW"/DEBIAN/control; then
+        $SED -i "s/^Pre-Depends\:/Pre-Depends: $PreDepends,/" "$TEMPDIR_NEW"/DEBIAN/control
+    else
+        echo "Pre-Depends: $PreDepends" >> "$TEMPDIR_NEW"/DEBIAN/control
+    fi
+fi
+
+
+find "$TEMPDIR_NEW" -name ".DS_Store" -delete
+dpkg-deb -Zzstd -b "$TEMPDIR_NEW" "$OUTPUT_PATH"
+chown 501:501 "$OUTPUT_PATH"
+
+### Real script end
+
+$ECHO "\nfinished. cleaning up..."
+
+if [ "$(sw_vers -productName)" != "macOS" ]; then
+    rm -rf "$TEMPDIR_OLD" "$TEMPDIR_NEW"
+    rm -f $1
+fi
+
+\\t' read -r kind path; do
+            [ -n "$path" ] || continue
+            if [ "$kind" = "jbroot" ]; then
+                $ECHO "  [jbroot candidate] $path"
+            else
+                $ECHO "  [rootfs path - do not rewrite] $path"
+            fi
+        done <<< "$result"
+        $ECHO "***********************************"
+    fi
+}
+
+####################################################################
+
 ### Derootifier Script ##################################
 Derootifier() {
 
