@@ -97,6 +97,7 @@ while IFS= read -r line; do
     prev_reg=""
     while IFS= read -r ins; do
         ins_addr="${ins%%[[:space:]]*}"
+        ins_addr_dec=$((16#$ins_addr))
         rest="${ins#*[[:space:]]}"
         if printf '%s\n' "$rest" | grep -Eq "^[[:space:]]*adrp[[:space:]]+x([0-9]+),.*;[[:space:]]*$page_hex$"; then
             prev_reg="$(printf '%s\n' "$rest" | sed -nE 's/^[[:space:]]*adrp[[:space:]]+x([0-9]+),.*;[[:space:]]*0x[0-9a-fA-F]+$/\1/p')"
@@ -108,7 +109,7 @@ while IFS= read -r line; do
                 set -- $add_reg
                 dst="$1"; src="$2"; imm="$3"
                 if [ "$src" = "$prev_reg" ] && [ $((16#$imm)) -eq "$off" ]; then
-                    patch_addr=$((ins_addr + 4))
+                    patch_addr=$((ins_addr_dec + 4))
                     xml_patch_cstring "$patch_addr" "$dst" "$action"
                 fi
             fi
@@ -119,11 +120,12 @@ while IFS= read -r line; do
     # Direct ADR materialization.
     while IFS= read -r ins; do
         ins_addr="${ins%%[[:space:]]*}"
+        ins_addr_dec=$((16#$ins_addr))
         rest="${ins#*[[:space:]]}"
         target="$(printf '%s\n' "$rest" | sed -nE 's/^[[:space:]]*adr[[:space:]]+x([0-9]+),[[:space:]]*0x([0-9a-fA-F]+).*$/\2/p')"
         if [ -n "$target" ] && [ $((16#$target)) -eq "$addr_dec" ]; then
             reg="$(printf '%s\n' "$rest" | sed -nE 's/^[[:space:]]*adr[[:space:]]+x([0-9]+),.*/\1/p')"
-            [ -n "$reg" ] && xml_patch_cstring $((ins_addr + 4)) "$reg" "$action"
+            [ -n "$reg" ] && xml_patch_cstring $((ins_addr_dec + 4)) "$reg" "$action"
         fi
     done < "$DISASM"
 
