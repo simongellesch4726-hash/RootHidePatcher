@@ -59,41 +59,75 @@ xml_patch_cfstring() {
 EOF
 }
 
-# otool prints __cstring entries as: 0xADDRESS STRING.
-cstring_dump="$(otool $OTOOL_ARCH -v -s __TEXT __cstring "$BIN" 2>/dev/null || true)"
-if [ -z "$cstring_dump" ]; then
+# Work from a thin slice when possible. strings reports file offsets, so
+# analyzing a universal binary without thinning would mix slice offsets.
+ANALYZE_BIN="$BIN"
+if command -v lipo >/dev/null 2>&1; then
+    arch_name="arm64"
+    case "$OTOOL_ARCH" in
+        *arm64e*) arch_name="arm64e" ;;
+    esac
+    if lipo -archs "$BIN" 2>/dev/null | tr ' ' '\n' | grep -qx "$arch_name"; then
+        THIN_BIN="$TMP/analysis-$arch_name"
+        if lipo -thin "$arch_name" "$BIN" -output "$THIN_BIN" >/dev/null 2>&1; then
+            ANALYZE_BIN="$THIN_BIN"
+            OTOOL_ARCH=""
+        fi
+    fi
+fi
+
+# Resolve the __TEXT,__cstring section so strings(1)'s file offsets can
+# be converted to Mach-O virtual addresses.
+read CSTR_ADDR CSTR_SIZE CSTR_OFF <<EOF_CSTR
+$(otool $OTOOL_ARCH -l "$ANALYZE_BIN" 2>/dev/null | awk '
+$1=="sectname" {sec=$2}
+$1=="segname" {seg=$2}
+sec=="__cstring" && seg=="__TEXT" && $1=="addr" {addr=$2}
+sec=="__cstring" && seg=="__TEXT" && $1=="size" {size=$2}
+sec=="__cstring" && seg=="__TEXT" && $1=="offset" {print addr, size, $2; exit}
+')
+EOF_CSTR
+
+if [ -z "$CSTR_ADDR" ] || [ -z "$CSTR_SIZE" ] || [ -z "$CSTR_OFF" ]; then
     printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0"><array></array></plist>' > "$OUT"
     exit 0
 fi
 
+CSTR_ADDR_DEC=$((CSTR_ADDR))
+CSTR_SIZE_DEC=$((CSTR_SIZE))
+CSTR_OFF_DEC=$((CSTR_OFF))
+CSTR_END_DEC=$((CSTR_OFF_DEC + CSTR_SIZE_DEC))
 DISASM="$TMP/disasm"
-otool $OTOOL_ARCH -t -v -V "$BIN" > "$DISASM" 2>/dev/null || true
+otool $OTOOL_ARCH -t -v -V "$ANALYZE_BIN" > "$DISASM" 2>/dev/null || true
 
 while IFS= read -r line; do
-    case "$line" in
-        0x*) ;;
-        *) continue ;;
-    esac
+    line="${line#"\${line%%[![:space:]]*}"}"
+    [ -z "$line" ] && continue
 
-    addr_token="${line%%[[:space:]]*}"
+    fileoff_hex="${line%%[[:space:]]*}"
     path="${line#*[[:space:]]}"
     case "$path" in
         /var/*|/private/var/*) ;;
         *) continue ;;
     esac
 
+    fileoff=$((16#$fileoff_hex))
+    if [ "$fileoff" -lt "$CSTR_OFF_DEC" ] || [ "$fileoff" -ge "$CSTR_END_DEC" ]; then
+        continue
+    fi
+
     action="$(classify "$path")"
     [ "$action" = "unknown" ] && continue
 
-    addr_dec=$((addr_token))
+    addr_dec=$((CSTR_ADDR_DEC + fileoff - CSTR_OFF_DEC))
+    addr_token="$(printf '0x%X' "$addr_dec")"
     page=$((addr_dec & ~0xfff))
     off=$((addr_dec & 0xfff))
-    page_hex="$(printf '0x%X' "$page")"
-    off_hex="$(printf '0x%X' "$off")"
+    page_hex="$(printf '0x%x' "$page")"
 
     # Direct ADRP + ADD materialization. The patch is installed at the
     # instruction immediately after ADD, when the register contains the
-    # complete C-string pointer, matching RootHide's documented workflow.
+    # complete C-string pointer.
     prev_reg=""
     while IFS= read -r ins; do
         ins_addr="${ins%%[[:space:]]*}"
@@ -138,7 +172,7 @@ while IFS= read -r line; do
     # __CFString constants reference the same __cstring address in their
     # buffer field. Support both DATA layouts used by modern Mach-O files.
     for seg in __DATA __DATA_CONST; do
-        cf="$(otool $OTOOL_ARCH -v -s "$seg" __cfstring "$BIN" 2>/dev/null || true)"
+        cf="$(otool $OTOOL_ARCH -v -s "$seg" __cfstring "$ANALYZE_BIN" 2>/dev/null || true)"
         [ -z "$cf" ] && continue
         while IFS= read -r cfl; do
             if printf '%s\n' "$cfl" | grep -Fqi "$addr_token"; then
@@ -151,9 +185,7 @@ while IFS= read -r line; do
 $cf
 EOF_CF
     done
-done <<EOF_STRINGS
-$cstring_dump
-EOF_STRINGS
+done < <(strings -a -t x "$ANALYZE_BIN")
 
 # Deduplicate identical dictionaries by normalizing through plutil.
 # If no patches were discovered, emit a valid empty array.
