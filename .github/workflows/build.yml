@@ -1,0 +1,59 @@
+name: Build RootHidePatcher
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - auto-fixed-paths-v2
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build iOS app
+        run: |
+          set -eux
+          xcodebuild -project RootHidePatcher.xcodeproj -scheme RootHidePatcher -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO build
+
+      - name: Verify bundled analyzer
+        run: |
+          set -eux
+          APP="$(find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Release-iphoneos/Patcher.app' -type d -print -quit)"
+          test -n "$APP"
+          test -x "$APP/roothide_fixed_path_analyzer.sh"
+          bash -n "$APP/patch.sh"
+          bash -n "$APP/roothide_fixed_path_analyzer.sh"
+
+      - name: Analyzer integration test
+        run: |
+          set -eux
+          APP="$(find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Release-iphoneos/Patcher.app' -type d -print -quit)"
+          cat > fixture.c <<'EOF'
+          extern void consume(const char *);
+          __attribute__((visibility("default"))) void fixture(void) {
+              consume("/var/log/roothide-auto-test.log");
+              consume("/var/mobile/Library/Preferences/keep-rootfs.plist");
+          }
+          EOF
+          clang -target arm64-apple-macos11 -dynamiclib fixture.c -o fixture.dylib
+          "$APP/roothide_fixed_path_analyzer.sh" fixture.dylib fixture.plist
+          plutil -convert xml1 -o - fixture.plist > fixture.xml
+          grep -q '<string>jbroot</string>' fixture.xml
+          if grep -q 'keep-rootfs.plist' fixture.xml; then exit 1; fi
+          grep -q '<string>cstring</string>' fixture.xml
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootHidePatcher-${{ github.sha }}
+          path: ~/Library/Developer/Xcode/DerivedData/*/Build/Products/Release-iphoneos/Patcher.app
+          if-no-files-found: error
