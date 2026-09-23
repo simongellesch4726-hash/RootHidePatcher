@@ -47,11 +47,21 @@ jobs:
           }
           EOF
           clang -target arm64-apple-macos11 -dynamiclib fixture.c -o fixture.dylib
-          "$APP/roothide_fixed_path_analyzer.sh" fixture.dylib fixture.plist
-          plutil -convert xml1 -o - fixture.plist > fixture.xml
+          bash "$APP/roothide_fixed_path_analyzer.sh" fixture.dylib fixture.plist 2>&1 | tee analyzer.log
+          plutil -convert xml1 -o - fixture.plist | tee fixture.xml
           grep -q '<string>jbroot</string>' fixture.xml
           if grep -q 'keep-rootfs.plist' fixture.xml; then exit 1; fi
           grep -q '<string>cstring</string>' fixture.xml
+
+      - name: Upload analyzer diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootHidePatcher-analyzer-log-${{ github.sha }}
+          path: |
+            analyzer.log
+            fixture.xml
+          if-no-files-found: warn
 
       - name: Upload app
         uses: actions/upload-artifact@v4
