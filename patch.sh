@@ -284,10 +284,28 @@ done
         $LDID -S "$file"
     fi
     $ECHO "~ok."
-    fixedpaths=$(strings - "$file" | grep /var/jb || true)
     if [ "$3" == "AutoPatches" ]; then
-        ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file".roothidepatch
+        ANALYZER="$(dirname "$(realpath "$0")")/roothide_fixed_path_analyzer.sh"
+        PATCH_CONFIG="$file.roothidepatch.plist"
+        if [ -x "$ANALYZER" ]; then
+            if "$ANALYZER" "$file" "$PATCH_CONFIG"; then
+                if plutil -convert xml1 -o - "$PATCH_CONFIG" 2>/dev/null | grep -q "<dict>"; then
+                    rm -f "$file.roothidepatch"
+                    ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file.roothidepatch"
+                    $ECHO "auto fixed-path patches generated."
+                else
+                    rm -f "$PATCH_CONFIG"
+                    $ECHO "no provable fixed-path use sites found; no runtime patch attached."
+                fi
+            else
+                rm -f "$PATCH_CONFIG"
+                $ECHO "WARNING: fixed-path analyzer failed; binary left unpatched."
+            fi
+        else
+            $ECHO "WARNING: fixed-path analyzer missing from RootHidePatcher bundle."
+        fi
     fi
+    fixedpaths=$(strings -a "$file" | grep -E '^/(private/)?var/(jb|tmp|log|cache|lib|empty|config)(/|$)' || true)
   elif ! [[ {png,strings} =~ "${fname##*.}" ]]; then
     if [[ {preinst,prerm,postinst,postrm,extrainst_} =~ "$fname" ]]; then
         $SED -i 's|iphoneos-arm64|iphoneos-arm64e|g' "$file"
@@ -337,7 +355,7 @@ done
             $SED -i 's|/-var/jb-|/var/jb|g' "$file"
         fi
     fi
-    fixedpaths=$(strings - "$file" | grep /var/jb || true)
+    fixedpaths=$(strings -a "$file" | grep -E '^/(private/)?var/(jb|tmp|log|cache|lib|empty|config)(/|$)' || true)
     if [ ! -z "$fixedpaths" ]; then
         $ECHO "=> $fpath"
     fi
