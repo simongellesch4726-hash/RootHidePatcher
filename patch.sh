@@ -337,7 +337,12 @@ done
 
     fixedpaths=$(strings -a "$file" | grep -E '^/(private/)?var/(jb|tmp|log|cache|lib|empty|config)(/|$)' || true)
     if [ "$3" == "AutoPatches" ]; then
-        ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file".roothidepatch
+        if [ -f /usr/lib/DynamicPatches/AutoPatches.dylib ]; then
+            ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file".roothidepatch
+        else
+            $ECHO "WARNING: AutoPatches.dylib is not installed; generated .roothidepatch will not be functional until the runtime module is installed."
+            ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$file".roothidepatch
+        fi
     fi
   elif ! [[ {png,strings} =~ "${fname##*.}" ]]; then
     if [[ {preinst,prerm,postinst,postrm,extrainst_} =~ "$fname" ]]; then
