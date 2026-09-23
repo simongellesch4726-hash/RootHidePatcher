@@ -22,13 +22,15 @@ jobs:
       - name: Build iOS app
         run: |
           set -eux
-          xcodebuild -project RootHidePatcher.xcodeproj -scheme RootHidePatcher -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project RootHidePatcher.xcodeproj -scheme RootHidePatcher -sdk iphoneos -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 
       - name: Verify bundled analyzer
         run: |
           set -eux
-          APP="$(find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Release-iphoneos/Patcher.app' -type d -print -quit)"
-          test -n "$APP"
+          APP="$GITHUB_WORKSPACE/build/Build/Products/Release-iphoneos/Patcher.app"
+          echo "APP=$APP"
+          find "$GITHUB_WORKSPACE/build/Build/Products" -maxdepth 3 -print
+          test -d "$APP"
           test -f "$APP/roothide_fixed_path_analyzer.sh"
           bash -n "$APP/patch.sh"
           bash -n "$APP/roothide_fixed_path_analyzer.sh"
@@ -36,7 +38,7 @@ jobs:
       - name: Analyzer integration test
         run: |
           set -eux
-          APP="$(find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Release-iphoneos/Patcher.app' -type d -print -quit)"
+          APP="$GITHUB_WORKSPACE/build/Build/Products/Release-iphoneos/Patcher.app"
           cat > fixture.c <<'EOF'
           extern void consume(const char *);
           __attribute__((visibility("default"))) void fixture(void) {
@@ -55,5 +57,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RootHidePatcher-${{ github.sha }}
-          path: ~/Library/Developer/Xcode/DerivedData/*/Build/Products/Release-iphoneos/Patcher.app
+          path: build/Build/Products/Release-iphoneos/Patcher.app
           if-no-files-found: error
